@@ -9,7 +9,7 @@
  *   4. API Key 从环境变量或本地 auth.json 读取，绝不硬编码
  *
  * 用法：
- *   node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5] [--api https://opencode.ai/zen/go/v1]
+ *   node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5-free] [--api https://opencode.ai/zen/v1]
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -24,8 +24,8 @@ const MIME = {
   bmp: 'image/bmp',
 };
 
-const DEFAULT_MODEL = process.env.VISION_MODEL || 'mimo-v2.5';
-const DEFAULT_API = process.env.VISION_API_BASE || 'https://opencode.ai/zen/go/v1';
+const DEFAULT_MODEL = process.env.VISION_MODEL || 'mimo-v2.5-free';
+const DEFAULT_API = process.env.VISION_API_BASE || 'https://opencode.ai/zen/v1';
 const MAX_MB = 8; // 超过则提示（可继续，但提醒）
 
 function printHelp() {

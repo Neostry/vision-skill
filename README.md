@@ -1,6 +1,6 @@
 # Vision Skill（识图技能）
 
-让**没有视觉能力的 AI 模型**（如 DeepSeek V4 Flash）也能"看图"：把图片发送给有视觉能力的模型 API（默认 `mimo-v2.5`），用文字描述返回给主模型。
+让**没有视觉能力的 AI 模型**（如 DeepSeek V4 Flash）也能"看图"：把图片发送给有视觉能力的模型 API（默认 `mimo-v2.5-free`，OpenCode Zen 免费线路），用文字描述返回给主模型。
 
 符合 **Agent Skills 开放标准**（[agentskills.io](https://agentskills.io)），一套文件兼容多个 AI 编码工具：
 
@@ -36,7 +36,7 @@ cd vision-skill
 ### 手动调用
 
 ```bash
-node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5]
+node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5-free]
 ```
 
 ## 工作原理
@@ -45,8 +45,8 @@ node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5]
 图片文件 → base64 → POST 到视觉模型 API（OpenAI 兼容格式）→ 返回文字描述
 ```
 
-- **默认模型**：`mimo-v2.5`（支持 text/image/audio/video，1M context）
-- **默认 API**：`https://opencode.ai/zen/go/v1`（opencode-go 网关，OpenAI 兼容）
+- **默认模型**：`mimo-v2.5-free`（支持 text/image/audio/video，200K context，免费）
+- **默认 API**：`https://opencode.ai/zen/v1`（OpenCode Zen 统一端点，OpenAI 兼容；同一把 opencode key 即可访问）
 
 ### API Key 从哪来（自动，按优先级）
 
@@ -72,10 +72,12 @@ node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5]
 
 | 模型 | 说明 |
 |---|---|
-| `mimo-v2.5` | 默认，最便宜（约 $0.14/M input） |
+| `mimo-v2.5-free` | 默认，**免费**（OpenCode Zen 免费线路，200K context） |
 | `mimo-v2-omni` | 额外支持 audio/pdf |
 | `qwen3.7-plus` / `qwen3.6-plus` / `qwen3.5-plus` | 阿里系多模态 |
 | `kimi-k2.5` / `kimi-k2.6` / `kimi-k3` | Kimi 多模态 |
+
+默认走 Zen 免费线路（不消耗 go 套餐额度）。如需换回 go 套餐线路：`--api https://opencode.ai/zen/go/v1 --model mimo-v2.5`。
 
 更换 API 端点用 `--api <URL>`。
 

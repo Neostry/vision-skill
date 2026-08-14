@@ -28,6 +28,16 @@
  *       中的图片），--keep-db 可保留
  *     - codex / reasonix 为 jsonl 行式记录，删除会破坏会话回放，故只读不删
  *
+ * 自动降级阶梯（免费优先，限流/失败依次降级，最后 go 套餐兜底）：
+ *     默认阶梯（2026-08-14 实测：免费线路仅 mimo-v2.5-free 与 hy3-free 支持图像输入，
+ *     nemotron 系列 / laguna 系列 / deepseek-*-free 均不可用于识图）：
+ *       [1] mimo-v2.5-free @ https://opencode.ai/zen/v1      （免费）
+ *       [2] hy3-free       @ https://opencode.ai/zen/v1      （免费）
+ *       [3] mimo-v2.5      @ https://opencode.ai/zen/go/v1   （go 套餐兜底）
+ *     - 任一步非 200 或网络错误，自动尝试下一步，直到成功或耗尽
+ *     - --model / --api 指定后作为阶梯起点（其后的默认阶梯项自动补全去重）
+ *     - 环境变量 VISION_LADDER="model@api,model@api,..." 可完全自定义阶梯
+ *
  * 用法：
  *   node vision.mjs <图片路径 或 文件名...> [--prompt "问题"] [--model mimo-v2.5-free]
  *                  [--api URL] [--source disk,opencode,codex,reasonix] [--keep-db]
@@ -54,6 +64,13 @@ const DEFAULT_API = process.env.VISION_API_BASE || 'https://opencode.ai/zen/v1';
 const MAX_MB = 8; // 超过则提示（可继续，但提醒）
 const TAIL_BYTES = 8 * 1024 * 1024; // 大 jsonl 只读尾部，足够覆盖最近粘贴的图片
 const MAX_CANDIDATE_FILES = 30;     // 每次最多探测的文件数
+
+// 自动降级阶梯：免费优先，失败依次降级，最后 go 套餐兜底
+const DEFAULT_LADDER = [
+  { model: 'mimo-v2.5-free', api: 'https://opencode.ai/zen/v1' },
+  { model: 'hy3-free',       api: 'https://opencode.ai/zen/v1' },
+  { model: 'mimo-v2.5',      api: 'https://opencode.ai/zen/go/v1' },
+];
 
 // ---------------------------------------------------------------------------
 // 工具函数
@@ -222,12 +239,15 @@ function printHelp() {
   - 传入文件名（如 image.png）：按顺序到各工作台查找你最近粘贴的这张图片
 选项:
   --prompt "问题"   要问视觉模型的问题（默认: 请详细描述这张图片的内容）
-  --model 模型名    视觉模型（默认: ${DEFAULT_MODEL}）
-  --api URL         OpenAI 兼容 API 地址（默认: ${DEFAULT_API}）
+  --model 模型名    阶梯起点模型（默认: ${DEFAULT_MODEL}，降级阶梯自动补全）
+  --api URL         阶梯起点的 API 地址（默认: ${DEFAULT_API}）
   --max-tokens N    最大输出 token（默认: 2048）
   --source 列表     图片来源: disk,opencode,codex,reasonix（默认自动全部探测）
   --keep-db         识别成功后保留 opencode 数据库里的图片记录（默认会自动删除）
   --help            显示帮助
+自动降级阶梯（失败/429 依次尝试，最后 go 套餐兜底）:
+  ${DEFAULT_LADDER.map((s) => `[${DEFAULT_LADDER.indexOf(s) + 1}] ${s.model} @ ${s.api}`).join('\n  ')}
+  环境变量 VISION_LADDER="model@api,model@api,..." 可完全自定义
 Key 来源（按优先级）: 环境变量 VISION_API_KEY > OPENCODE_API_KEY > opencode 的 auth.json`);
 }
 
@@ -249,6 +269,33 @@ function parseArgs(argv) {
   }
   if (args.sources && args.sources.includes('auto')) args.sources = null;
   return args;
+}
+
+/**
+ * 构建自动降级阶梯：
+ *   - 环境变量 VISION_LADDER="model@api,..." 优先，完全自定义
+ *   - 否则以 --model/--api 指定（或默认）为起点，其后补默认阶梯中未出现的项
+ * @returns {Array<{model:string, api:string}>}
+ */
+function buildLadder(args) {
+  const env = process.env.VISION_LADDER;
+  if (env) {
+    return env.split(',').map((s) => {
+      const [model, api] = s.trim().split('@');
+      return { model: (model || '').trim(), api: (api || DEFAULT_API).trim() };
+    }).filter((s) => s.model);
+  }
+  const ladder = [];
+  const push = (model, api) => {
+    if (model && !ladder.some((s) => s.model === model && s.api === api)) {
+      ladder.push({ model, api });
+    }
+  };
+  // 起点：用户指定或默认
+  push(args.model || DEFAULT_MODEL, args.api || DEFAULT_API);
+  // 补默认阶梯
+  for (const step of DEFAULT_LADDER) push(step.model, step.api);
+  return ladder;
 }
 
 function loadApiKey() {
@@ -331,38 +378,63 @@ async function main() {
     parts.push({ type: 'image_url', image_url: { url: img.url } });
   }
 
-  const body = {
-    model: args.model,
-    messages: [{ role: 'user', content: parts }],
-    max_tokens: args.maxTokens,
-  };
+  const ladder = buildLadder(args);
+  let lastErr = null;
+  let chosen = null;
+  for (const step of ladder) {
+    const body = {
+      model: step.model,
+      messages: [{ role: 'user', content: parts }],
+      max_tokens: args.maxTokens,
+    };
+    let res;
+    try {
+      res = await fetch(step.api.replace(/\/+$/, '') + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      lastErr = { step, status: '网络错误', msg: e && e.message ? e.message : String(e) };
+      console.error(`[降级] ${step.model}@${step.api} 网络错误（${lastErr.msg}），尝试下一个`);
+      continue;
+    }
 
-  const res = await fetch(args.api.replace(/\/+$/, '') + '/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
-    },
-    body: JSON.stringify(body),
-  });
+    if (!res.ok) {
+      const err = await res.text();
+      lastErr = { step, status: res.status, msg: err.slice(0, 300) };
+      console.error(`[降级] ${step.model}@${step.api} 失败（${res.status}），尝试下一个`);
+      continue;
+    }
 
-  if (!res.ok) {
-    const err = await res.text();
-    console.error(`API 错误 ${res.status}: ${err.slice(0, 1000)}`);
+    const data = await res.json();
+    const msg = (data.choices && data.choices[0] && data.choices[0].message) || {};
+    const content = typeof msg.content === 'string' ? msg.content.trim() : '';
+    if (content) {
+      chosen = step;
+      console.log(content);
+    } else if (msg.reasoning_content) {
+      chosen = step;
+      console.log(String(msg.reasoning_content).trim());
+      console.error('[提示] 模型只返回了 reasoning_content，未返回最终 content');
+    } else {
+      lastErr = { step, status: 200, msg: 'API 返回内容为空' };
+      console.error(`[降级] ${step.model}@${step.api} 返回内容为空，尝试下一个`);
+      continue;
+    }
+    break;
+  }
+
+  if (!chosen) {
+    console.error(`错误: 阶梯内所有模型均失败。最后一次错误: ${lastErr ? `${lastErr.status}: ${lastErr.msg}` : '未知'}`);
     process.exit(1);
   }
 
-  const data = await res.json();
-  const msg = (data.choices && data.choices[0] && data.choices[0].message) || {};
-  const content = typeof msg.content === 'string' ? msg.content.trim() : '';
-  if (content) {
-    console.log(content);
-  } else if (msg.reasoning_content) {
-    console.log(String(msg.reasoning_content).trim());
-    console.error('[提示] 模型只返回了 reasoning_content，未返回最终 content');
-  } else {
-    console.error('错误: API 返回内容为空');
-    process.exit(1);
+  if (chosen !== ladder[0]) {
+    console.error(`[模型] 本次由阶梯第 ${ladder.indexOf(chosen) + 1} 个模型 ${chosen.model}@${chosen.api} 完成识别`);
   }
 
   // 识别成功后清理：仅 opencode 支持删除；codex/reasonix 行式记录只读

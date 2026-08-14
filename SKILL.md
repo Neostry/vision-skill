@@ -36,14 +36,21 @@ WSL 环境自动兼容 `/mnt/c/Users/<用户>` 下的对应目录。找不到时
 - **codex / reasonix**：会话为 jsonl 行式记录，删除会破坏回放，故只读不删
 
 ## 默认配置
-- 模型：`mimo-v2.5-free`（支持 text/image/audio/video，200K context，OpenCode Zen 免费线路）
-- API：`https://opencode.ai/zen/v1`（OpenCode Zen 统一端点，OpenAI 兼容格式）
+- **自动降级阶梯**（默认免费优先，限流/失败依次降级，最后 go 套餐兜底）：
+  1. `mimo-v2.5-free` @ `https://opencode.ai/zen/v1`（免费）
+  2. `hy3-free` @ `https://opencode.ai/zen/v1`（免费）
+  3. `mimo-v2.5` @ `https://opencode.ai/zen/go/v1`（go 套餐兜底）
+
+  任一步返回非 200 或网络错误会自动尝试下一步，直到成功或耗尽。`--model`/`--api` 指定后作为阶梯起点（其后默认项自动补全）；环境变量 `VISION_LADDER="model@api,model@api,..."` 可完全自定义阶梯。
+
+  > 免费线路的多模态识图模型经 2026-08-14 实测仅 `mimo-v2.5-free` 与 `hy3-free` 两个（nemotron/laguna/deepseek 系列免费模型不支持图片输入），故免费阶梯为 2 个 + go 兜底。
+
 - API Key 来源（自动，按优先级）：
   1. 环境变量 `VISION_API_KEY`
   2. 环境变量 `OPENCODE_API_KEY`
   3. 回退读取 opencode 登录态的 `auth.json`（`~/.local/share/opencode/auth.json` 中的 opencode-go key）
 
-同一把 opencode key 即可访问 Zen 免费线路（已验证 `opencode-go` 的 key 可直接用于 `https://opencode.ai/zen/v1`）。如需换回 go 套餐线路，用 `--api https://opencode.ai/zen/go/v1 --model mimo-v2.5`。
+同一把 opencode key 即可访问 Zen 免费线路（已验证 `opencode-go` 的 key 可直接用于 `https://opencode.ai/zen/v1`）。
 
 ## 安全规则（不可违反）
 - 只把**用户明确给出的图片**发往视觉 API，绝不扫描、上传无关文件

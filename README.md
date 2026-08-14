@@ -68,6 +68,20 @@ node vision.mjs <图片路径或文件名...> [--prompt "问题"] [--model mimo-
 2. 环境变量 `OPENCODE_API_KEY`
 3. opencode 登录态 `~/.local/share/opencode/auth.json`（无需任何配置）
 
+### 自动降级阶梯（免费优先，限流自动降级，最后 go 套餐兜底）
+
+默认阶梯（任一步非 200 或网络错误，自动尝试下一步）：
+
+| 序号 | 模型 | 线路 | 说明 |
+|---|---|---|---|
+| 1 | `mimo-v2.5-free` | `https://opencode.ai/zen/v1` | 免费（默认） |
+| 2 | `hy3-free` | `https://opencode.ai/zen/v1` | 免费（降级） |
+| 3 | `mimo-v2.5` | `https://opencode.ai/zen/go/v1` | go 套餐兜底 |
+
+- `--model` / `--api` 指定后作为阶梯起点，其后默认项自动补全去重
+- 环境变量 `VISION_LADDER="model@api,model@api,..."` 可完全自定义阶梯
+- 实测（2026-08-14）：免费线路仅 `mimo-v2.5-free`、`hy3-free` 两个免费模型支持图片输入（nemotron/laguna/deepseek 系列免费模型返回 400 "No endpoints found that support image input"），故免费阶梯为 2 个 + go 兜底
+
 > 如果你用别的 API（阿里云百炼 `qwen-vl-max`、OpenAI `gpt-4o-mini` 等），设置环境变量即可，无需改代码：
 > ```powershell
 > setx VISION_API_KEY "sk-你的key"
@@ -85,16 +99,20 @@ node vision.mjs <图片路径或文件名...> [--prompt "问题"] [--model mimo-
 
 ## 可选视觉模型（--model 覆盖）
 
+`--model` 指定**阶梯起点**，其后的默认阶梯项会自动补全（不指定时从 `mimo-v2.5-free` 起步）：
+
 | 模型 | 说明 |
 |---|---|
-| `mimo-v2.5-free` | 默认，**免费**（OpenCode Zen 免费线路，200K context） |
+| `mimo-v2.5-free` | 默认起点，**免费**（OpenCode Zen 免费线路，200K context） |
+| `hy3-free` | 免费降级候选（阶梯第 2 位） |
+| `mimo-v2.5` | go 套餐兜底（阶梯第 3 位） |
 | `mimo-v2-omni` | 额外支持 audio/pdf |
 | `qwen3.7-plus` / `qwen3.6-plus` / `qwen3.5-plus` | 阿里系多模态 |
 | `kimi-k2.5` / `kimi-k2.6` / `kimi-k3` | Kimi 多模态 |
 
-默认走 Zen 免费线路（不消耗 go 套餐额度）。如需换回 go 套餐线路：`--api https://opencode.ai/zen/go/v1 --model mimo-v2.5`。
+例如想优先用 `qwen3.7-plus`（go 线路）：`--api https://opencode.ai/zen/go/v1 --model qwen3.7-plus`，免费模型会在其之后自动兜底。
 
-更换 API 端点用 `--api <URL>`。
+更换 API 端点用 `--api <URL>`；完全自定义降级链用 `VISION_LADDER="model@api,..."`。
 
 ## 许可证
 

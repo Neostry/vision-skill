@@ -16,10 +16,24 @@ description: 让无视觉能力的模型（如 deepseek-v4-flash）也能看图�
 运行（需要 node）：
 
 ```
-node "<本 SKILL.md 所在目录>/vision.mjs" <图片路径> [更多图片路径...] [--prompt "具体问题"] [--model mimo-v2.5-free]
+node "<本 SKILL.md 所在目录>/vision.mjs" <图片路径或文件名> [更多...] [--prompt "具体问题"] [--model mimo-v2.5-free]
 ```
 
 把脚本返回的文字描述当作"看到的画面"，整合进你的回答。
+
+**识别粘贴的图片（重要）**：主模型收不到用户粘贴的图片，但各 AI 工作台都会把图片以 base64 data URL 存到本地。脚本按「磁盘文件 → opencode → codex → reasonix」自动探测（可用 `--source` 指定），找到后**直接复用数据库里的 base64 发请求，不落盘、不恢复成文件**：
+
+| 工作台 | 图片存储位置 | 匹配 |
+|---|---|---|
+| opencode | `~/.local/share/opencode/opencode.db` 的 part 表（`type:"file", mime:"image/*"`） | 可按文件名精确匹配 |
+| codex | `~/.codex/sessions/.../rollout-*.jsonl`（`input_image`/`image_url` data URL） | 最近一张 |
+| reasonix | `%AppData%\reasonix`（Win）/ `~/.config/reasonix`（Linux,macOS）/ `~/.reasonix`（旧版）的会话 jsonl | 最近一张 |
+
+WSL 环境自动兼容 `/mnt/c/Users/<用户>` 下的对应目录。找不到时脚本会给出明确警告。
+
+**自动清理**：
+- **opencode**：识别成功后默认自动删除数据库里的图片记录（减少占用，但该条会话回放会丢失图片）；`--keep-db` 可保留
+- **codex / reasonix**：会话为 jsonl 行式记录，删除会破坏回放，故只读不删
 
 ## 默认配置
 - 模型：`mimo-v2.5-free`（支持 text/image/audio/video，200K context，OpenCode Zen 免费线路）
@@ -33,7 +47,8 @@ node "<本 SKILL.md 所在目录>/vision.mjs" <图片路径> [更多图片路径
 
 ## 安全规则（不可违反）
 - 只把**用户明确给出的图片**发往视觉 API，绝不扫描、上传无关文件
-- 脚本零依赖、只做"读文件 + 一个 HTTP POST"，不做任何其他操作
+- 脚本零依赖，只做"取图片 base64 + 一个 HTTP POST + 打印结果"
+- 查库默认只读；仅识别成功后按上面的清理策略删除（opencode 记录），`--keep-db` 可保留
 - 不打印、不写盘、不展示 API Key
 - 图片超过 8MB 会提示，但可继续
 
@@ -46,6 +61,9 @@ node "<本 SKILL.md 所在目录>/vision.mjs" <图片路径> [更多图片路径
 
 ## 示例
 ```
-node "...\vision.mjs" C:\Users\me\Pictures\截图1.png --prompt "这个界面是什么软件？指出所有按钮和报错信息"
+node "...\vision.mjs" image.png --prompt "这个界面是什么软件？指出所有按钮和报错信息"     # 自动定位粘贴图，opencode 记录识别后删除
+node "...\vision.mjs" image.png --keep-db                                                # 保留 opencode 数据库记录
+node "...\vision.mjs" image.png --source opencode                                         # 只从 opencode 找
+node "...\vision.mjs" C:\Users\me\Pictures\截图1.png --prompt "描述这张图"               # 读取磁盘文件
 node "...\vision.mjs" a.png b.png --prompt "对比这两张图的差异"
 ```

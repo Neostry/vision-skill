@@ -36,17 +36,31 @@ cd vision-skill
 ### 手动调用
 
 ```bash
-node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5-free]
+node vision.mjs <图片路径或文件名...> [--prompt "问题"] [--model mimo-v2.5-free]
 ```
 
 ## 工作原理
 
 ```
-图片文件 → base64 → POST 到视觉模型 API（OpenAI 兼容格式）→ 返回文字描述
+图片（磁盘文件 或 工作台粘贴图）→ base64 data URL → POST 到视觉模型 API（OpenAI 兼容格式）→ 返回文字描述
 ```
 
-- **默认模型**：`mimo-v2.5-free`（支持 text/image/audio/video，200K context，免费）
-- **默认 API**：`https://opencode.ai/zen/v1`（OpenCode Zen 统一端点，OpenAI 兼容；同一把 opencode key 即可访问）
+主模型收不到用户粘贴的图片，但各 AI 工作台都会把粘贴图片以 **base64 data URL** 形式存到本地。脚本按「磁盘文件 → opencode → codex → reasonix」自动探测，找到后**直接复用已存好的 base64 发请求，不落盘、不恢复成文件**：
+
+| 工作台 | 图片存储位置 | 匹配精度 | 识别后清理 |
+|---|---|---|---|
+| opencode | `~/.local/share/opencode/opencode.db` 的 part 表（`type:"file", mime:"image/*"`） | 按文件名精确匹配 | **默认自动删除**记录（`--keep-db` 保留） |
+| codex | `~/.codex/sessions/<年>/<月>/<日>/rollout-*.jsonl`（`input_image`/`image_url` data URL） | 最近一张 | 只读，不删（jsonl 行式记录，删除破坏回放） |
+| reasonix | `%AppData%\reasonix`（Win）/ `~/.config/reasonix`（Linux,macOS）/ `~/.reasonix`（旧版）的会话 jsonl | 最近一张 | 只读，不删 |
+
+> WSL 环境自动兼容 `/mnt/c/Users/<用户>` 下的对应目录。找不到图片时脚本给出明确警告。
+> 可通过 `--source disk,opencode,codex,reasonix` 限定来源。
+
+### 端到端实测（2026-08-14）
+
+- opencode：自动定位 `image.png` → base64 直用识别 → 识别后自动删除数据库记录（part 数归零），全程无临时文件
+- reasonix：成功从 WSL 侧 `%AppData%\reasonix` 会话 jsonl 定位到图片 data URL
+- 各工作台存储位置均在本机实测确认
 
 ### API Key 从哪来（自动，按优先级）
 
@@ -63,10 +77,11 @@ node vision.mjs <图片路径...> [--prompt "问题"] [--model mimo-v2.5-free]
 
 ## 安全设计
 
-- **零依赖**：只用 Node 内置 API（`fetch`/`fs`），不安装任何 npm 包，不执行任何下载的代码
-- **最小行为**：只做"读你指定的图片 + 发 1 个 HTTP POST + 打印结果"，不扫描目录、不读无关文件、不写文件、不留日志
+- **零依赖**：只用 Node 内置 API（`fetch`/`fs`/`os`/`sqlite`），不安装任何 npm 包，不执行任何下载的代码
+- **最小行为**：只做"取用户指定的图片 base64 + 发 1 个 HTTP POST + 打印结果"；查工作台数据库默认只读
+- **清理可控**：仅识别成功后删除 opencode 数据库里那一条图片记录（默认），`--keep-db` 可保留；codex / reasonix 只读不删
 - **Key 不泄露**：从环境变量或本地 `auth.json` 读取，**绝不硬编码、绝不打印**
-- 完整源码约 130 行，欢迎审查：`vision.mjs`
+- 完整源码约 380 行，模块化（适配器架构）且可逐行审查：`vision.mjs`
 
 ## 可选视觉模型（--model 覆盖）
 

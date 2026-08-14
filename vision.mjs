@@ -29,11 +29,12 @@
  *     - codex / reasonix 为 jsonl 行式记录，删除会破坏会话回放，故只读不删
  *
  * 自动降级阶梯（免费优先，限流/失败依次降级，最后 go 套餐兜底）：
- *     默认阶梯（2026-08-14 实测：免费线路仅 mimo-v2.5-free 与 hy3-free 支持图像输入，
- *     nemotron 系列 / laguna 系列 / deepseek-*-free 均不可用于识图）：
+ *     默认阶梯（2026-08-14 实测复核：免费线路真正支持识图的免费模型只有
+ *     mimo-v2.5-free 一个。hy3-free 虽返回 200 但会静默忽略图片（回复"没有看到
+ *     图片附件"），nemotron 系列 / laguna 系列 / deepseek-*-free 直接 400
+ *     "No endpoints support image input"，均不可用于识图）：
  *       [1] mimo-v2.5-free @ https://opencode.ai/zen/v1      （免费）
- *       [2] hy3-free       @ https://opencode.ai/zen/v1      （免费）
- *       [3] mimo-v2.5      @ https://opencode.ai/zen/go/v1   （go 套餐兜底）
+ *       [2] mimo-v2.5      @ https://opencode.ai/zen/go/v1   （go 套餐兜底）
  *     - 任一步非 200 或网络错误，自动尝试下一步，直到成功或耗尽
  *     - --model / --api 指定后作为阶梯起点（其后的默认阶梯项自动补全去重）
  *     - 环境变量 VISION_LADDER="model@api,model@api,..." 可完全自定义阶梯
@@ -66,9 +67,9 @@ const TAIL_BYTES = 8 * 1024 * 1024; // 大 jsonl 只读尾部，足够覆盖最�
 const MAX_CANDIDATE_FILES = 30;     // 每次最多探测的文件数
 
 // 自动降级阶梯：免费优先，失败依次降级，最后 go 套餐兜底
+// （2026-08-14 复核：hy3-free 等其余免费模型均不可识图，已从阶梯移除）
 const DEFAULT_LADDER = [
   { model: 'mimo-v2.5-free', api: 'https://opencode.ai/zen/v1' },
-  { model: 'hy3-free',       api: 'https://opencode.ai/zen/v1' },
   { model: 'mimo-v2.5',      api: 'https://opencode.ai/zen/go/v1' },
 ];
 

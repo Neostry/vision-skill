@@ -38,12 +38,11 @@ WSL 环境自动兼容 `/mnt/c/Users/<用户>` 下的对应目录。找不到时
 ## 默认配置
 - **自动降级阶梯**（默认免费优先，限流/失败依次降级，最后 go 套餐兜底）：
   1. `mimo-v2.5-free` @ `https://opencode.ai/zen/v1`（免费）
-  2. `hy3-free` @ `https://opencode.ai/zen/v1`（免费）
-  3. `mimo-v2.5` @ `https://opencode.ai/zen/go/v1`（go 套餐兜底）
+  2. `mimo-v2.5` @ `https://opencode.ai/zen/go/v1`（go 套餐兜底）
 
   任一步返回非 200 或网络错误会自动尝试下一步，直到成功或耗尽。`--model`/`--api` 指定后作为阶梯起点（其后默认项自动补全）；环境变量 `VISION_LADDER="model@api,model@api,..."` 可完全自定义阶梯。
 
-  > 免费线路的多模态识图模型经 2026-08-14 实测仅 `mimo-v2.5-free` 与 `hy3-free` 两个（nemotron/laguna/deepseek 系列免费模型不支持图片输入），故免费阶梯为 2 个 + go 兜底。
+  > **免费线路识图模型实测（2026-08-14 复核）**：免费线路真正能识图的模型**只有 `mimo-v2.5-free` 一个**。`hy3-free` 虽返回 200 但会静默忽略图片（回复"没有收到图片附件"），nemotron/laguna/deepseek 系列免费模型直接 400 不支持图片输入——均不可用于识图，已从阶梯移除。
 
 - API Key 来源（自动，按优先级）：
   1. 环境变量 `VISION_API_KEY`

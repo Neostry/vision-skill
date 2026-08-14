@@ -75,12 +75,11 @@ node vision.mjs <图片路径或文件名...> [--prompt "问题"] [--model mimo-
 | 序号 | 模型 | 线路 | 说明 |
 |---|---|---|---|
 | 1 | `mimo-v2.5-free` | `https://opencode.ai/zen/v1` | 免费（默认） |
-| 2 | `hy3-free` | `https://opencode.ai/zen/v1` | 免费（降级） |
-| 3 | `mimo-v2.5` | `https://opencode.ai/zen/go/v1` | go 套餐兜底 |
+| 2 | `mimo-v2.5` | `https://opencode.ai/zen/go/v1` | go 套餐兜底 |
 
 - `--model` / `--api` 指定后作为阶梯起点，其后默认项自动补全去重
 - 环境变量 `VISION_LADDER="model@api,model@api,..."` 可完全自定义阶梯
-- 实测（2026-08-14）：免费线路仅 `mimo-v2.5-free`、`hy3-free` 两个免费模型支持图片输入（nemotron/laguna/deepseek 系列免费模型返回 400 "No endpoints found that support image input"），故免费阶梯为 2 个 + go 兜底
+- **实测复核（2026-08-14）**：免费线路真正能识图的模型**只有 `mimo-v2.5-free` 一个**。`hy3-free` 会静默忽略图片（返回 200 但回复"没有收到图片附件"），nemotron/laguna/deepseek 系列免费模型返回 400 "No endpoints found that support image input"——均不可用于识图，已从阶梯移除
 
 > 如果你用别的 API（阿里云百炼 `qwen-vl-max`、OpenAI `gpt-4o-mini` 等），设置环境变量即可，无需改代码：
 > ```powershell
@@ -104,8 +103,7 @@ node vision.mjs <图片路径或文件名...> [--prompt "问题"] [--model mimo-
 | 模型 | 说明 |
 |---|---|
 | `mimo-v2.5-free` | 默认起点，**免费**（OpenCode Zen 免费线路，200K context） |
-| `hy3-free` | 免费降级候选（阶梯第 2 位） |
-| `mimo-v2.5` | go 套餐兜底（阶梯第 3 位） |
+| `mimo-v2.5` | go 套餐兜底（阶梯第 2 位） |
 | `mimo-v2-omni` | 额外支持 audio/pdf |
 | `qwen3.7-plus` / `qwen3.6-plus` / `qwen3.5-plus` | 阿里系多模态 |
 | `kimi-k2.5` / `kimi-k2.6` / `kimi-k3` | Kimi 多模态 |

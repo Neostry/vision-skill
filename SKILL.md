@@ -1,6 +1,6 @@
 ---
 name: vision
-description: 让无视觉能力的模型（如 deepseek-v4-flash）也能看图：把用户提供的图片发给视觉模型 API（默认 mimo-v2.5-free），返回文字描述。用户发送图片/截图或询问图像内容时使用。
+description: 让无视觉能力的模型（如 deepseek-v4-flash）也能看图：把用户提供的图片发给视觉模型 API（默认 mimo-v2.5，OpenCode Zen go 线路），返回文字描述。用户发送图片/截图或询问图像内容时使用。
 ---
 
 # Vision（识图技能）
@@ -16,7 +16,7 @@ description: 让无视觉能力的模型（如 deepseek-v4-flash）也能看图�
 运行（需要 node）：
 
 ```
-node "<本 SKILL.md 所在目录>/vision.mjs" <图片路径或文件名> [更多...] [--prompt "具体问题"] [--model mimo-v2.5-free]
+node "<本 SKILL.md 所在目录>/vision.mjs" <图片路径或文件名> [更多...] [--prompt "具体问题"] [--model mimo-v2.5]
 ```
 
 把脚本返回的文字描述当作"看到的画面"，整合进你的回答。
@@ -36,20 +36,20 @@ WSL 环境自动兼容 `/mnt/c/Users/<用户>` 下的对应目录。找不到时
 - **codex / reasonix**：会话为 jsonl 行式记录，删除会破坏回放，故只读不删
 
 ## 默认配置
-- **自动降级阶梯**（默认免费优先，限流/失败依次降级，最后 go 套餐兜底）：
-  1. `mimo-v2.5-free` @ `https://opencode.ai/zen/v1`（免费）
-  2. `mimo-v2.5` @ `https://opencode.ai/zen/go/v1`（go 套餐兜底）
+- **自动降级阶梯**（成本优先，首选失败自动降级）：
+  1. `mimo-v2.5` @ `https://opencode.ai/zen/go/v1`（首选，最便宜）
+  2. `deepseek-v4-flash-vision-exp` @ `https://opencode.ai/zen/go/v1`（备胎，不同供应商）
 
   任一步返回非 200 或网络错误会自动尝试下一步，直到成功或耗尽。`--model`/`--api` 指定后作为阶梯起点（其后默认项自动补全）；环境变量 `VISION_LADDER="model@api,model@api,..."` 可完全自定义阶梯。
 
-  > **免费线路识图模型实测（2026-08-14 复核）**：免费线路真正能识图的模型**只有 `mimo-v2.5-free` 一个**。`hy3-free` 虽返回 200 但会静默忽略图片（回复"没有收到图片附件"），nemotron/laguna/deepseek 系列免费模型直接 400 不支持图片输入——均不可用于识图，已从阶梯移除。
+  > **线路复核（2026-09-29）**：Zen **免费层**（`zen/v1` 的 `*-free` 模型，含 `mimo-v2.6-flash-free`）现已限制为"只能在 OpenCode 客户端内部调用"，外部脚本一律 `403 FreeTierError`，故默认改走 go 线路。go 线路要求请求带自定义 `User-Agent` + 稳定 `x-opencode-session` 头（脚本已内置），否则 `400 MissingSessionID`。
 
 - API Key 来源（自动，按优先级）：
   1. 环境变量 `VISION_API_KEY`
   2. 环境变量 `OPENCODE_API_KEY`
   3. 回退读取 opencode 登录态的 `auth.json`（`~/.local/share/opencode/auth.json` 中的 opencode-go key）
 
-同一把 opencode key 即可访问 Zen 免费线路（已验证 `opencode-go` 的 key 可直接用于 `https://opencode.ai/zen/v1`）。
+默认走 go 线路，需要一把有效的 **OpenCode Go 订阅 key**（登录 opencode 后即存于 `auth.json` 的 `opencode-go` 字段）。免费层已不支持外部脚本调用。
 
 ## 安全规则（不可违反）
 - 只把**用户明确给出的图片**发往视觉 API，绝不扫描、上传无关文件
@@ -58,10 +58,11 @@ WSL 环境自动兼容 `/mnt/c/Users/<用户>` 下的对应目录。找不到时
 - 不打印、不写盘、不展示 API Key
 - 图片超过 8MB 会提示，但可继续
 
-## 常用可选模型（--model 覆盖）
-- `mimo-v2.5-free`（默认，免费）
-- `mimo-v2-omni`（还支持 audio/pdf）
-- `qwen3.7-plus` / `qwen3.6-plus` / `qwen3.5-plus`（阿里系多模态）
+## 常用可选模型（--model 覆盖，均走 go 线路）
+- `mimo-v2.5`（默认，最便宜）
+- `deepseek-v4-flash-vision-exp`（备胎，专为视觉、非推理）
+- `mimo-v2.6-flash` / `mimo-v2-omni`（omni 还支持 audio/pdf）
+- `qwen3.8-flash` / `qwen3.7-plus` / `qwen3.6-plus`（阿里系多模态）
 - `kimi-k2.5` / `kimi-k2.6` / `kimi-k3`（Kimi 多模态）
 - 更换 API 可用 `--api <URL>`（OpenAI 兼容端点）
 

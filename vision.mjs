@@ -28,25 +28,27 @@
  *       中的图片），--keep-db 可保留
  *     - codex / reasonix 为 jsonl 行式记录，删除会破坏会话回放，故只读不删
  *
- * 自动降级阶梯（免费优先，限流/失败依次降级，最后 go 套餐兜底）：
- *     默认阶梯（2026-08-14 实测复核：免费线路真正支持识图的免费模型只有
- *     mimo-v2.5-free 一个。hy3-free 虽返回 200 但会静默忽略图片（回复"没有看到
- *     图片附件"），nemotron 系列 / laguna 系列 / deepseek-*-free 直接 400
- *     "No endpoints support image input"，均不可用于识图）：
- *       [1] mimo-v2.5-free @ https://opencode.ai/zen/v1      （免费）
- *       [2] mimo-v2.5      @ https://opencode.ai/zen/go/v1   （go 套餐兜底）
+ * 自动降级阶梯（成本优先，限流/失败依次降级）：
+ *     默认阶梯（2026-09-29 实测复核）：免费层（zen/v1 的 *-free 模型）现已限制
+ *     为"只能在 OpenCode 客户端内部调用"，外部脚本一律 403 FreeTierError，故默认
+ *     改走 go 套餐线路（同价位的 mimo-v2.5 最便宜）：
+ *       [1] mimo-v2.5                     @ https://opencode.ai/zen/go/v1  （首选，最便宜）
+ *       [2] deepseek-v4-flash-vision-exp  @ https://opencode.ai/zen/go/v1  （备胎，不同供应商）
+ *     - go 线路要求：请求须带自定义 User-Agent 与 x-opencode-session 头，否则
+ *       返回 400 MissingSessionID（本脚本已内置，见 SESSION_ID）
  *     - 任一步非 200 或网络错误，自动尝试下一步，直到成功或耗尽
  *     - --model / --api 指定后作为阶梯起点（其后的默认阶梯项自动补全去重）
  *     - 环境变量 VISION_LADDER="model@api,model@api,..." 可完全自定义阶梯
  *
  * 用法：
- *   node vision.mjs <图片路径 或 文件名...> [--prompt "问题"] [--model mimo-v2.5-free]
+ *   node vision.mjs <图片路径 或 文件名...> [--prompt "问题"] [--model mimo-v2.5]
  *                  [--api URL] [--source disk,opencode,codex,reasonix] [--keep-db]
  */
 import { readFileSync, existsSync, readdirSync, statSync, openSync, fstatSync, readSync, closeSync } from 'node:fs';
 import { resolve, join, basename, extname } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 process.removeAllListeners('warning'); // 抑制 node:sqlite 实验特性警告（本脚本无其他需展示的警告）
@@ -60,17 +62,22 @@ const MIME = {
   bmp: 'image/bmp',
 };
 
-const DEFAULT_MODEL = process.env.VISION_MODEL || 'mimo-v2.5-free';
-const DEFAULT_API = process.env.VISION_API_BASE || 'https://opencode.ai/zen/v1';
+const DEFAULT_MODEL = process.env.VISION_MODEL || 'mimo-v2.5';
+const DEFAULT_API = process.env.VISION_API_BASE || 'https://opencode.ai/zen/go/v1';
 const MAX_MB = 8; // 超过则提示（可继续，但提醒）
 const TAIL_BYTES = 8 * 1024 * 1024; // 大 jsonl 只读尾部，足够覆盖最近粘贴的图片
 const MAX_CANDIDATE_FILES = 30;     // 每次最多探测的文件数
 
-// 自动降级阶梯：免费优先，失败依次降级，最后 go 套餐兜底
-// （2026-08-14 复核：hy3-free 等其余免费模型均不可识图，已从阶梯移除）
+// 客户端身份：go 线路要求自定义 User-Agent，并提供稳定 session id 供路由/缓存
+const CLIENT_UA = 'vision-skill/1.0';
+const SESSION_ID = process.env.OPENCODE_SESSION_ID || randomUUID(); // 每次运行一个，同进程内复用
+
+// 自动降级阶梯：成本优先，失败依次降级
+// （2026-09-29 复核：zen/v1 免费层已限制为仅 OpenCode 客户端内部可用，外部脚本 403
+//   FreeTierError，故默认走 go 线路；mimo-v2.5 与 v2.6-flash 同价但更稳定成熟）
 const DEFAULT_LADDER = [
-  { model: 'mimo-v2.5-free', api: 'https://opencode.ai/zen/v1' },
-  { model: 'mimo-v2.5',      api: 'https://opencode.ai/zen/go/v1' },
+  { model: 'mimo-v2.5',                    api: 'https://opencode.ai/zen/go/v1' },
+  { model: 'deepseek-v4-flash-vision-exp', api: 'https://opencode.ai/zen/go/v1' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -135,6 +142,23 @@ function wslUserDirs(rel) {
     }
   } catch { /* 非 WSL 环境 */ }
   return candidates;
+}
+
+/** 根据 Zen 报错给出针对性排查提示（规则变迁时便于定位问题） */
+function diagnose(status, errText) {
+  if (errText.includes('FreeTierError')) {
+    return '免费层模型只能在 OpenCode 客户端内部调用，外部脚本不可用；请改用 go 线路模型（默认已是 mimo-v2.5@zen/go/v1）。';
+  }
+  if (errText.includes('MissingSessionID')) {
+    return '请求缺少 x-opencode-session 头（go 线路必需），请确认脚本为最新版。';
+  }
+  if (status === 401 || errText.includes('AuthError')) {
+    return 'API Key 无效或已过期，请检查 VISION_API_KEY / OPENCODE_API_KEY / auth.json。';
+  }
+  if (status === 429) {
+    return '触发限流（429），脚本会自动降级到下一个模型。';
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +270,7 @@ function printHelp() {
   --source 列表     图片来源: disk,opencode,codex,reasonix（默认自动全部探测）
   --keep-db         识别成功后保留 opencode 数据库里的图片记录（默认会自动删除）
   --help            显示帮助
-自动降级阶梯（失败/429 依次尝试，最后 go 套餐兜底）:
+自动降级阶梯（成本优先，失败/429 依次尝试）:
   ${DEFAULT_LADDER.map((s) => `[${DEFAULT_LADDER.indexOf(s) + 1}] ${s.model} @ ${s.api}`).join('\n  ')}
   环境变量 VISION_LADDER="model@api,model@api,..." 可完全自定义
 Key 来源（按优先级）: 环境变量 VISION_API_KEY > OPENCODE_API_KEY > opencode 的 auth.json`);
@@ -395,6 +419,8 @@ async function main() {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${key}`,
+          'User-Agent': CLIENT_UA,
+          'x-opencode-session': SESSION_ID,
         },
         body: JSON.stringify(body),
       });
@@ -408,6 +434,8 @@ async function main() {
       const err = await res.text();
       lastErr = { step, status: res.status, msg: err.slice(0, 300) };
       console.error(`[降级] ${step.model}@${step.api} 失败（${res.status}），尝试下一个`);
+      const hint = diagnose(res.status, err);
+      if (hint) console.error(`[诊断] ${hint}`);
       continue;
     }
 
